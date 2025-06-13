@@ -14,7 +14,7 @@
 
 
 
-<td><a href="https://dashboard.heroku.com/new?template=https%3A%2F%2Fgithub.com%2FDAFFA-0%2Ffree-bot%2Fblob%2Fmain" target="_blank"><img src="https://img.shields.io/badge/Heroku-430098?style=for-the-badge&logo=heroku&logoColor=white&labelColor=000000&color=00ffff"/></a></td>
+<td><a href="https://dashboard.heroku.com/new?template=https://github.com/DAFFA-0/free-bot" target="_blank"><img src="https://img.shields.io/badge/Heroku-430098?style=for-the-badge&logo=heroku&logoColor=white&labelColor=000000&color=00ffff"/></a></td>
 
 
 
