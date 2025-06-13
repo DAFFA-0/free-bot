@@ -132,7 +132,27 @@ const port = process.env.PORT || 9090;
   //============================== 
 
   conn.ev.on("group-participants.update", (update) => GroupEvents(conn, update));	  
-	  
+	          
+//==================================================================
+
+	
+conn.ev.on("call", async(json) => {
+	  if(config.ANTI_CALL === "true" ) { 
+	for(const id of json) {
+    		if(id.status == "offer") {
+    			if(id.isGroup == false) {
+    				await conn.sendMessage(id.from, {
+    			text: `⚠️︱Call rejected automaticaly Because owner is busy right now\nහිමිකරු දැන් කාර්ය බහුල බැවින් ඇමතුම ස්වයංක්‍රීයව ප්‍රතික්ෂේප විය\n\n\n> CALL RIJECT BY DAFFA WHA BOT`, 
+							mentions: [id.from]
+    				});
+    				await conn.rejectCall(id.id, id.from);
+    			} else {
+    				await conn.rejectCall(id.id, id.from);
+    			}
+    		}
+    	}}
+    });       
+//==================================================================
   //=============readstatus=======
         
   conn.ev.on('messages.upsert', async(mek) => {
