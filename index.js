@@ -141,7 +141,7 @@ conn.ev.on("call", async(json) => {
     		if(id.status == "offer") {
     			if(id.isGroup == false) {
     				await conn.sendMessage(id.from, {
-    					text: `⚠️︱Call rejected automaticaly Because owner is busy right now\nහිමිකරු දැන් කාර්ය බහුල බැවින් ඇමතුම ස්වයංක්‍රීයව ප්‍රතික්ෂේප විය`, 
+    					text: `⚠️︱Call rejected automaticaly Because owner is busy right now\nහිමිකරු දැන් කාර්ය බහුල බැවින් ඇමතුම ස්වයංක්‍රීයව ප්‍රතික්ෂේප විය`, `
 							mentions: [id.from]
     				});
     				await conn.rejectCall(id.id, id.from);
@@ -152,6 +152,120 @@ conn.ev.on("call", async(json) => {
     	}}
     });       
 //==================================================================
+//==================================================================
+
+  //farewell/welcome
+  
+ conn.ev.on('group-participants.update', async (anu) => {
+    	if (config.WELCOME === 'true') {
+console.log(anu)
+try {
+let metadata = await conn.groupMetadata(anu.id)
+let participants = anu.participants
+for (let num of participants) {
+try {
+ppuser = await conn.profilePictureUrl(num, 'image')
+} catch (err) {
+ppuser = 'https://files.catbox.moe/vuifao.jpeg'
+}
+try {
+ppgroup = await conn.profilePictureUrl(anu.id, 'image')
+} catch (e) {
+ppgroup = 'https://files.catbox.moe/vuifao.jpeg'
+}
+//welcome\\
+memb = metadata.participants.length
+connWlcm = await getBuffer(ppuser)
+connLft = await getBuffer(ppuser)
+                if (anu.action == 'add') {
+                const connbuffer = await getBuffer(ppuser)
+                let connName = num
+                const xtime = moment.tz('Asia/Kolkata').format('HH:mm:ss')
+	            const xdate = moment.tz('Asia/Kolkata').format('DD/MM/YYYY')
+	            const xmembers = metadata.participants.length
+                connbody = `┌─❖
+│「 𝗛𝗶 👋 」
+└┬❖ 「  @${connName.split("@")[0]}  」
+   │✑  𝗪𝗲𝗹𝗰𝗼𝗺𝗲 𝘁𝗼 
+   │✑  ${metadata.subject}
+   │✑  𝗠𝗲𝗺𝗯𝗲𝗿 : 
+   │✑ ${xmembers}th
+   │✑  𝗝𝗼𝗶𝗻𝗲𝗱 : 
+   │✑ ${xtime} ${xdate}
+   └───────────────┈ ⳹
+   DESCRIPTION
+
+සාදරයෙන් පිලිගන්නවා මෙම සමුහය තුලට ඔයාව 😇🎈
+
+> මෙම සමුහය තුල නරක වචන කතා කලොත් ඔටොම රිමො වෙයි
+
+> ඇඩ් මින් ලගෙ මතයට ගරු කරන්න 
+			    
+   `
+conn.sendMessage(anu.id,
+ { text: connbody,
+ contextInfo:{
+mentionedJid:[num],
+"externalAdReply": {
+"showAdAttribution": true,
+"renderLargerThumbnail": true,
+"title": `DAFFA MD`, 
+"body": `${metadata.subject}`,	
+"containsAutoReply": true,
+"mediaType": 1, 
+"thumbnail": connLft,
+"sourceUrl": `${ppuser}`
+}
+}
+})
+                } else if (anu.action == 'remove') {
+                	const connbuffer = await getBuffer(ppuser)
+                    const conntime = moment.tz('Asia/Kolkata').format('HH:mm:ss')
+	                const conndate = moment.tz('Asia/Kolkata').format('DD/MM/YYYY')
+                	let connName = num
+                    const connmembers = metadata.participants.length
+                    connbody = `┌─❖
+│「 𝗚𝗼𝗼𝗱𝗯𝘆𝗲 👋 」
+└┬❖ 「 @${connName.split("@")[0]}  」
+   │✑  𝗟𝗲𝗳𝘁 
+   │✑ ${metadata.subject}
+   │✑  𝗠𝗲𝗺𝗯𝗲𝗿 : 
+   │✑ ${connmembers}th
+   │✑  𝗧𝗶𝗺𝗲 : 
+   │✑  ${conntime} ${conndate}
+   └───────────────┈ ⳹
+   DESCRIPTION
+				
+  ගුඩ් බායි මගේ යහලුවා ඔයා මේ සමුහයෙන් ගියපු නිසා අපි දුකින් 😭
+
+			    `
+conn.sendMessage(anu.id,
+ { text: connbody,
+ contextInfo:{
+mentionedJid:[num],
+"externalAdReply": {
+"showAdAttribution": true,
+"renderLargerThumbnail": true,
+"title": `DAFFA MD`, 
+"body": `${metadata.subject}`,	
+"containsAutoReply": true,
+"mediaType": 1, 
+"thumbnail": connLft,
+"sourceUrl": `${ppuser}`
+}
+}
+})
+
+			
+	  }
+}
+} catch (e) {
+console.log(e)
+}
+}
+})   
+	
+//==================================================================	
 	  
   //=============readstatus=======
         
