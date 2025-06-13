@@ -1,778 +1,1367 @@
 const {
-  default: makeWASocket,
+    default: makeWASocket,
+    getAggregateVotesInPollMessage, 
     useMultiFileAuthState,
     DisconnectReason,
-    jidNormalizedUser,
-    isJidBroadcast,
-    getContentType,
-    proto,
-    generateWAMessageContent,
-    generateWAMessage,
-    AnyMessageContent,
-    prepareWAMessageMedia,
-    areJidsSameUser,
-    downloadContentFromMessage,
-    MessageRetryMap,
-    generateForwardMessageContent,
-    generateWAMessageFromContent,
-    generateMessageID, makeInMemoryStore,
-    jidDecode,
+    getDevice,
     fetchLatestBaileysVersion,
-    Browsers
-  } = require('@whiskeysockets/baileys')
-  
-  
-  const l = console.log
-  const { getBuffer, getGroupAdmins, getRandom, h2k, isUrl, Json, runtime, sleep, fetchJson } = require('./lib/functions')
-  const { AntiDelDB, initializeAntiDeleteSettings, setAnti, getAnti, getAllAntiDeleteSettings, saveContact, loadMessage, getName, getChatSummary, saveGroupMetadata, getGroupMetadata, saveMessageCount, getInactiveGroupMembers, getGroupMembersMessageCount, saveMessage } = require('./data')
-  const fs = require('fs')
-  const ff = require('fluent-ffmpeg')
-  const P = require('pino')
-  const config = require('./config')
-  const GroupEvents = require('./lib/groupevents');
-  const qrcode = require('qrcode-terminal')
-  const StickersTypes = require('wa-sticker-formatter')
-  const util = require('util')
-  const { sms, downloadMediaMessage, AntiDelete } = require('./lib')
-  const FileType = require('file-type');
-  const axios = require('axios')
-  const { File } = require('megajs')
-  const { fromBuffer } = require('file-type')
-  const bodyparser = require('body-parser')
-  const os = require('os')
-  const Crypto = require('crypto')
-  const path = require('path')
-  const prefix = config.PREFIX
-  
-  const ownerNumber = ['923427582273']
-  
-  const tempDir = path.join(os.tmpdir(), 'cache-temp')
-  if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir)
-  }
-  
-  const clearTempDir = () => {
-      fs.readdir(tempDir, (err, files) => {
-          if (err) throw err;
-          for (const file of files) {
-              fs.unlink(path.join(tempDir, file), err => {
-                  if (err) throw err;
-              });
-          }
-      });
-  }
-  
-  // Clear the temp directory every 5 minutes
-  setInterval(clearTempDir, 5 * 60 * 1000);
-  
-  //===================SESSION-AUTH============================
-if (!fs.existsSync(__dirname + '/sessions/creds.json')) {
-if(!config.SESSION_ID) return console.log('Please add your session to SESSION_ID env !!')
-const sessdata = config.SESSION_ID.replace("IK~", '');
-const filer = File.fromURL(`https://mega.nz/file/${sessdata}`)
-filer.download((err, data) => {
-if(err) throw err
-fs.writeFile(__dirname + '/sessions/creds.json', data, () => {
-console.log("Session downloaded ✅")
-})})}
+    jidNormalizedUser,
+    getContentType,
+    Browsers,
+    delay,
+    makeInMemoryStore,
+    makeCacheableSignalKeyStore,
+    downloadContentFromMessage,
+    generateWAMessageFromContent,
+    generateForwardMessageContent,
+    prepareWAMessageMedia,
+    proto
+} = require('@whiskeysockets/baileys')
+const fs = require('fs')
+const P = require('pino')
+const FileType = require('file-type')
+const moment = require('moment-timezone')
+const l = console.log
+var config = require('./settings')
+const pino = require("pino");
+const qrcode = require('qrcode-terminal')
+const NodeCache = require('node-cache')
+const util = require('util')
+var prefix = config.PREFIX
+var prefixRegex = config.PREFIX === "false" || config.PREFIX === "null" ? "^" : new RegExp('^[' + config.PREFIX + ']');
+const {
+    smsg,
+    getBuffer,
+    getGroupAdmins,
+    getRandom,
+    h2k,
+    isUrl,
+    Json,
+    runtime,
+    sleep,
+    fetchJson,
+    fetchBuffer,
+    getFile
+} = require('./lib/functions')
+const {
+    sms,
+    downloadMediaMessage
+} = require('./lib/msg')
+var { updateCMDStore,isbtnID,getCMDStore,getCmdForCmdId,connectdb,input,get,updb,updfb } = require("./lib/database")
+var { get_set , input_set } = require('./lib/set_db')        
+const axios = require('axios')
+const cheerio = require('cheerio');
+ function genMsgId() {
+  const lt = 'd.rukshan';
+  const prefix = "3EB";
+  const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let randomText = prefix;
 
+  for (let i = prefix.length; i < 22; i++) {
+    const randomIndex = Math.floor(Math.random() * characters.length);
+    randomText += characters.charAt(randomIndex);
+  }   
+ return randomText;
+}    
+
+const {
+    File
+} = require('megajs')
+const path = require('path')
+const msgRetryCounterCache = new NodeCache()
+const ownerNumber = '94741354157'
+
+
+
+
+//===================SESSION============================
+if (!fs.existsSync(__dirname + '/lib/creds.json')) {
+    if (config.SESSION_ID) {
+      const sessdata = config.SESSION_ID.replace("SOLO-LEVELING~", "")
+      const filer = File.fromURL(`https://mega.nz/file/${sessdata}`)
+      filer.download((err, data) => {
+        if (err) throw err
+        fs.writeFile(__dirname + '/lib/creds.json', data, () => {
+          console.log("Session download completed !!")
+        })
+      })
+    }
+  }
+// <<==========PORTS===========>>
 const express = require("express");
 const app = express();
-const port = process.env.PORT || 9090;
-  
-  //=============================================
-  
-  async function connectToWA() {
-  console.log("Connecting to WhatsApp ⏳️...");
-  const { state, saveCreds } = await useMultiFileAuthState(__dirname + '/sessions/')
-  var { version } = await fetchLatestBaileysVersion()
-  
-  const conn = makeWASocket({
-          logger: P({ level: 'silent' }),
-          printQRInTerminal: false,
-          browser: Browsers.macOS("Firefox"),
-          syncFullHistory: true,
-          auth: state,
-          version
-          })
-      
-  conn.ev.on('connection.update', (update) => {
-  const { connection, lastDisconnect } = update
-  if (connection === 'close') {
-  if (lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut) {
-  connectToWA()
-  }
-  } else if (connection === 'open') {
-  console.log('🧬 Installing Plugins')
-  const path = require('path');
-  fs.readdirSync("./plugins/").forEach((plugin) => {
-  if (path.extname(plugin).toLowerCase() == ".js") {
-  require("./plugins/" + plugin);
-  }
-  });
-  console.log('Plugins installed successful ✅')
-  console.log('Bot connected to whatsapp ✅')
-  
-  let up = `DAFFA MD CONNECT SUCSESS`;
-    conn.sendMessage(conn.user.id, { image: { url: `https://i.ibb.co/d4C83TX7/5f21bc7dc911cb76.jpg` }, caption: up })
-  }
+const port = process.env.PORT || 8000;
+
+//====================================
+async function connectToWA() {
+const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) })	
+    const {
+        version,
+        isLatest
+    } = await fetchLatestBaileysVersion()
+    console.log(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
+    const {
+        state,
+        saveCreds
+    } = await useMultiFileAuthState(__dirname + '/lib/')
+    const conn = makeWASocket({
+        logger: P({
+            level: "fatal"
+        }).child({
+            level: "fatal"
+        }),
+        printQRInTerminal: true,
+        generateHighQualityLinkPreview: true,
+        auth: state,
+        defaultQueryTimeoutMs: undefined,
+        msgRetryCounterCache
+    })
+
+    conn.ev.on('connection.update', async (update) => {
+        const {
+            connection,
+            lastDisconnect
+        } = update
+        if (connection === 'close') {
+            if (lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut) {
+                connectToWA()
+            }
+        } else if (connection === 'open') {
+
+
+		
+            console.log('Installing plugins 🔌... ')
+            const path = require('path');
+            fs.readdirSync("./plugins/").forEach((plugin) => {
+                if (path.extname(plugin).toLowerCase() == ".js") {
+                    require("./plugins/" + plugin);
+                }
+            });
+            console.log('Plugins installed ✅')
+            console.log('Dewmini connected ✅')
+await conn.sendMessage(config.OWNER_NUMBER + "@s.whatsapp.net", {
+text: "*⛩️ SOLO-LEVELING MD V4 ⛩️ ꜱᴜᴄᴄᴇsꜱꜰᴜʟʟʏ ᴄᴏɴɴᴇᴄᴛᴇᴅ* ✓\n\n\n> ◦ *𝙾𝙵𝙵𝙸𝙲𝙸𝙰𝙻 𝙶𝙸𝚃𝙷𝚄𝙱* - ```https://github.com/NO-REPOTech```\n> ◦ ᴊᴏɪɴ ᴏᴜʀ sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ ᴠɪᴀ ᴛʏᴘᴇ: .joinsup\n*🧚 SOLO-LEVELING-MD ᴡʜᴀᴛꜱᴀᴘᴘ ᴜꜱᴇʀ ʙᴏᴛ*\n*ᴄʀᴇᴀᴛᴇᴅ ʙʏ • ᴅ.ʀᴜꜱᴋʜᴀɴ ʟᴏᴅ ᴏꜰᴄ*",
+contextInfo: {
+externalAdReply: {
+title: "⛩️ SOLO-LEVELING MD V4 ⛩️\nSuccessfully Connected !",	
+thumbnailUrl: 'https://files.catbox.moe/f19lw7.jpeg',
+sourceUrl: "",
+mediaType: 1,
+renderLargerThumbnail: true
+}}}) 
+    }
   })
-  conn.ev.on('creds.update', saveCreds)
 
-  //==============================
 
-  conn.ev.on('messages.update', async updates => {
-    for (const update of updates) {
-      if (update.update.message === null) {
-        console.log("Delete Detected:", JSON.stringify(update, null, 2));
-        await AntiDelete(conn, updates);
-      }
-    }
-  });
-  //============================== 
 
-  conn.ev.on("group-participants.update", (update) => GroupEvents(conn, update));	  
-	  
-  //=============readstatus=======
-        
-  conn.ev.on('messages.upsert', async(mek) => {
-    mek = mek.messages[0]
-    if (!mek.message) return
-    mek.message = (getContentType(mek.message) === 'ephemeralMessage') 
-    ? mek.message.ephemeralMessage.message 
-    : mek.message;
-    //console.log("New Message Detected:", JSON.stringify(mek, null, 2));
-  if (config.READ_MESSAGE === 'true') {
-    await conn.readMessages([mek.key]);  // Mark message as read
-    console.log(`Marked message from ${mek.key.remoteJid} as read.`);
-  }
-    if(mek.message.viewOnceMessageV2)
-    mek.message = (getContentType(mek.message) === 'ephemeralMessage') ? mek.message.ephemeralMessage.message : mek.message
-    if (mek.key && mek.key.remoteJid === 'status@broadcast' && config.AUTO_STATUS_SEEN === "true"){
-      await conn.readMessages([mek.key])
-    }
-  if (mek.key && mek.key.remoteJid === 'status@broadcast' && config.AUTO_STATUS_REACT === "true"){
-    const jawadlike = await conn.decodeJid(conn.user.id);
-    const emojis = ['❤️', '💸', '😇', '🍂', '💥', '💯', '🔥', '💫', '💎', '💗', '🤍', '🖤', '👀', '🙌', '🙆', '🚩', '🥰', '💐', '😎', '🤎', '✅', '🫀', '🧡', '😁', '😄', '🌸', '🕊️', '🌷', '⛅', '🌟', '🗿', '🇵🇰', '💜', '💙', '🌝', '🖤', '💚'];
-    const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-    await conn.sendMessage(mek.key.remoteJid, {
-      react: {
-        text: randomEmoji,
-        key: mek.key,
-      } 
-    }, { statusJidList: [mek.key.participant, jawadlike] });
-  }                       
-  if (mek.key && mek.key.remoteJid === 'status@broadcast' && config.AUTO_STATUS_REPLY === "true"){
-  const user = mek.key.participant
-  const text = `${config.AUTO_STATUS_MSG}`
-  await conn.sendMessage(user, { text: text, react: { text: '💜', key: mek.key } }, { quoted: mek })
+conn.forwardMessage = async (jid, message, forceForward = false, options = {}) => {
+            let vtype
+            if (options.readViewOnce) {
+                message.message = message.message && message.message.ephemeralMessage && message.message.ephemeralMessage.message ? message.message.ephemeralMessage.message : (message.message || undefined)
+                vtype = Object.keys(message.message.viewOnceMessage.message)[0]
+                delete (message.message && message.message.ignore ? message.message.ignore : (message.message || undefined))
+                delete message.message.viewOnceMessage.message[vtype].viewOnce
+                message.message = {
+                    ...message.message.viewOnceMessage.message
+                }
             }
-            await Promise.all([
-              saveMessage(mek),
-            ]);
-  const m = sms(conn, mek)
-  const type = getContentType(mek.message)
-  const content = JSON.stringify(mek.message)
-  const from = mek.key.remoteJid
-  const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] : []
-  const body = (type === 'conversation') ? mek.message.conversation : (type === 'extendedTextMessage') ? mek.message.extendedTextMessage.text : (type == 'imageMessage') && mek.message.imageMessage.caption ? mek.message.imageMessage.caption : (type == 'videoMessage') && mek.message.videoMessage.caption ? mek.message.videoMessage.caption : ''
-  const isCmd = body.startsWith(prefix)
-  var budy = typeof mek.text == 'string' ? mek.text : false;
-  const command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : ''
-  const args = body.trim().split(/ +/).slice(1)
-  const q = args.join(' ')
-  const text = args.join(' ')
-  const isGroup = from.endsWith('@g.us')
-  const sender = mek.key.fromMe ? (conn.user.id.split(':')[0]+'@s.whatsapp.net' || conn.user.id) : (mek.key.participant || mek.key.remoteJid)
-  const senderNumber = sender.split('@')[0]
-  const botNumber = conn.user.id.split(':')[0]
-  const pushname = mek.pushName || 'Sin Nombre'
-  const isMe = botNumber.includes(senderNumber)
-  const isOwner = ownerNumber.includes(senderNumber) || isMe
-  const botNumber2 = await jidNormalizedUser(conn.user.id);
-  const groupMetadata = isGroup ? await conn.groupMetadata(from).catch(e => {}) : ''
-  const groupName = isGroup ? groupMetadata.subject : ''
-  const participants = isGroup ? await groupMetadata.participants : ''
-  const groupAdmins = isGroup ? await getGroupAdmins(participants) : ''
-  const isBotAdmins = isGroup ? groupAdmins.includes(botNumber2) : false
-  const isAdmins = isGroup ? groupAdmins.includes(sender) : false
-  const isReact = m.message.reactionMessage ? true : false
-  const reply = (teks) => {
-  conn.sendMessage(from, { text: teks }, { quoted: mek })
-  }
 
-  const udp = botNumber.split('@')[0];
-    const jawadop = ('923470027813', '923191089077', '923427582273');
-    
-    const ownerFilev2 = JSON.parse(fs.readFileSync('./lib/sudo.json', 'utf-8'));  
-    
-    let isCreator = [udp, ...jawadop, config.DEV + '@s.whatsapp.net', ...ownerFilev2]
-    .map(v => v.replace(/[^0-9]/g, '') + '@s.whatsapp.net') 
-    .includes(mek.sender);
-	  
-
-	  if (isCreator && mek.text.startsWith("&")) {
-            let code = budy.slice(2);
-            if (!code) {
-                reply(`Provide me with a query to run Master!`);
-                return;
+            let mtype = Object.keys(message.message)[0]
+            let content = await generateForwardMessageContent(message, forceForward)
+            let ctype = Object.keys(content)[0]
+            let context = {}
+            if (mtype != "conversation") context = message.message[mtype].contextInfo
+            content[ctype].contextInfo = {
+                ...context,
+                ...content[ctype].contextInfo
             }
-            const { spawn } = require("child_process");
-            try {
-                let resultTest = spawn(code, { shell: true });
-                resultTest.stdout.on("data", data => {
-                    reply(data.toString());
-                });
-                resultTest.stderr.on("data", data => {
-                    reply(data.toString());
-                });
-                resultTest.on("error", data => {
-                    reply(data.toString());
-                });
-                resultTest.on("close", code => {
-                    if (code !== 0) {
-                        reply(`command exited with code ${code}`);
+            const waMessage = await generateWAMessageFromContent(jid, content, options ? {
+                ...content[ctype],
+                ...options,
+                ...(options.contextInfo ? {
+                    contextInfo: {
+                        ...content[ctype].contextInfo,
+                        ...options.contextInfo
                     }
-                });
-            } catch (err) {
-                reply(util.format(err));
-            }
-            return;
-	  }	  
-
-  //==========public react============//
-  
-// Auto React for all messages (public and owner)
-if (!isReact && config.AUTO_REACT === 'true') {
-    const reactions = [
-        '🌼', '❤️', '💐', '🔥', '🏵️', '❄️', '🧊', '🐳', '💥', '🥀', '❤‍🔥', '🥹', '😩', '🫣', 
-        '🤭', '👻', '👾', '🫶', '😻', '🙌', '🫂', '🫀', '👩‍🦰', '🧑‍🦰', '👩‍⚕️', '🧑‍⚕️', '🧕', 
-        '👩‍🏫', '👨‍💻', '👰‍♀', '🦹🏻‍♀️', '🧟‍♀️', '🧟', '🧞‍♀️', '🧞', '🙅‍♀️', '💁‍♂️', '💁‍♀️', '🙆‍♀️', 
-        '🙋‍♀️', '🤷', '🤷‍♀️', '🤦', '🤦‍♀️', '💇‍♀️', '💇', '💃', '🚶‍♀️', '🚶', '🧶', '🧤', '👑', 
-        '💍', '👝', '💼', '🎒', '🥽', '🐻', '🐼', '🐭', '🐣', '🪿', '🦆', '🦊', '🦋', '🦄', 
-        '🪼', '🐋', '🐳', '🦈', '🐍', '🕊️', '🦦', '🦚', '🌱', '🍃', '🎍', '🌿', '☘️', '🍀', 
-        '🍁', '🪺', '🍄', '🍄‍🟫', '🪸', '🪨', '🌺', '🪷', '🪻', '🥀', '🌹', '🌷', '💐', '🌾', 
-        '🌸', '🌼', '🌻', '🌝', '🌚', '🌕', '🌎', '💫', '🔥', '☃️', '❄️', '🌨️', '🫧', '🍟', 
-        '🍫', '🧃', '🧊', '🪀', '🤿', '🏆', '🥇', '🥈', '🥉', '🎗️', '🤹', '🤹‍♀️', '🎧', '🎤', 
-        '🥁', '🧩', '🎯', '🚀', '🚁', '🗿', '🎙️', '⌛', '⏳', '💸', '💎', '⚙️', '⛓️', '🔪', 
-        '🧸', '🎀', '🪄', '🎈', '🎁', '🎉', '🏮', '🪩', '📩', '💌', '📤', '📦', '📊', '📈', 
-        '📑', '📉', '📂', '🔖', '🧷', '📌', '📝', '🔏', '🔐', '🩷', '❤️', '🧡', '💛', '💚', 
-        '🩵', '💙', '💜', '🖤', '🩶', '🤍', '🤎', '❤‍🔥', '❤‍🩹', '💗', '💖', '💘', '💝', '❌', 
-        '✅', '🔰', '〽️', '🌐', '🌀', '⤴️', '⤵️', '🔴', '🟢', '🟡', '🟠', '🔵', '🟣', '⚫', 
-        '⚪', '🟤', '🔇', '🔊', '📢', '🔕', '♥️', '🕐', '🚩', '🇵🇰'
-    ];
-
-    const randomReaction = reactions[Math.floor(Math.random() * reactions.length)];
-    m.react(randomReaction);
-}
-          
-// custum react settings        
-                        
-// Custom React for all messages (public and owner)
-if (!isReact && config.CUSTOM_REACT === 'true') {
-    // Use custom emojis from the configuration (fallback to default if not set)
-    const reactions = (config.CUSTOM_REACT_EMOJIS || '🥲,😂,👍🏻,🙂,😔').split(',');
-    const randomReaction = reactions[Math.floor(Math.random() * reactions.length)];
-    m.react(randomReaction);
-}
+                } : {})
+            } : {})
+            await conn.relayMessage(jid, waMessage.message, { messageId: waMessage.key.id })
+            return waMessage
+             }
         
-  //==========Sudo and Mode ============ 
+//==================================================================
 
-	  
-// ban users 
+	
+conn.ev.on("call", async(json) => {
+	  if(config.ANTI_CALL === "true" ) { 
+    	for(const id of json) {
+    		if(id.status == "offer") {
+    			if(id.isGroup == false) {
+    				await conn.sendMessage(id.from, {
+    					text: `⚠️︱Call rejected automaticaly Because owner is busy right now\nහිමිකරු දැන් කාර්ය බහුල බැවින් ඇමතුම ස්වයංක්‍රීයව ප්‍රතික්ෂේප විය`, 
+							mentions: [id.from]
+    				});
+    				await conn.rejectCall(id.id, id.from);
+    			} else {
+    				await conn.rejectCall(id.id, id.from);
+    			}
+    		}
+    	}}
+    });       
+//==================================================================
 
-const bannedUsers = JSON.parse(fs.readFileSync('./lib/ban.json', 'utf-8'));
-const isBanned = bannedUsers.includes(sender);
+  //farewell/welcome
+  
+ conn.ev.on('group-participants.update', async (anu) => {
+    	if (config.WELCOME === 'true') {
+console.log(anu)
+try {
+let metadata = await conn.groupMetadata(anu.id)
+let participants = anu.participants
+for (let num of participants) {
+try {
+ppuser = await conn.profilePictureUrl(num, 'image')
+} catch (err) {
+ppuser = 'https://files.catbox.moe/vuifao.jpeg'
+}
+try {
+ppgroup = await conn.profilePictureUrl(anu.id, 'image')
+} catch (e) {
+ppgroup = 'https://files.catbox.moe/vuifao.jpeg'
+}
+//welcome\\
+memb = metadata.participants.length
+connWlcm = await getBuffer(ppuser)
+connLft = await getBuffer(ppuser)
+                if (anu.action == 'add') {
+                const connbuffer = await getBuffer(ppuser)
+                let connName = num
+                const xtime = moment.tz('Asia/Kolkata').format('HH:mm:ss')
+	            const xdate = moment.tz('Asia/Kolkata').format('DD/MM/YYYY')
+	            const xmembers = metadata.participants.length
+                connbody = `┌─❖
+│「 𝗛𝗶 👋 」
+└┬❖ 「  @${connName.split("@")[0]}  」
+   │✑  𝗪𝗲𝗹𝗰𝗼𝗺𝗲 𝘁𝗼 
+   │✑  ${metadata.subject}
+   │✑  𝗠𝗲𝗺𝗯𝗲𝗿 : 
+   │✑ ${xmembers}th
+   │✑  𝗝𝗼𝗶𝗻𝗲𝗱 : 
+   │✑ ${xtime} ${xdate}
+   └───────────────┈ ⳹
+   DESCRIPTION
 
-if (isBanned) return; // Ignore banned users completely
-	  
-  const ownerFile = JSON.parse(fs.readFileSync('./lib/sudo.json', 'utf-8'));  // JawadTechX 
-  const ownerNumberFormatted = `${config.OWNER_NUMBER}@s.whatsapp.net`;
-  // json file setup
-  const isFileOwner = ownerFile.includes(sender);
-  const isRealOwner = sender === ownerNumberFormatted || isMe || isFileOwner;
-  // mode settings 
-  if (!isRealOwner && config.MODE === "private") return;
-  if (!isRealOwner && isGroup && config.MODE === "inbox") return;
-  if (!isRealOwner && !isGroup && config.MODE === "groups") return;
-	  
-  // take commands 
-                 
-  const events = require('./command')
-  const cmdName = isCmd ? body.slice(1).trim().split(" ")[0].toLowerCase() : false;
-  if (isCmd) {
+   OWNER NAME = D.RUKSHAN (RED SAMURAY)
+   
+   TEAM = LEGION OF DOOM LOD
+
+   JOIN MY WHATSAPP CHANNEL = https://whatsapp.com/channel/0029VbAWWH9BFLgRMCXVlU38
+
+   CHANNEL = https://whatsapp.com/channel/0029VbAWWH9BFLgRMCXVlU38
+
+👨‍💻 ꜱᴏʟᴏ ʟᴇᴠᴇʟɪɴɢ ᴍᴅ ʙʏ ʟᴏᴅ ᴛᴇᴀᴍ 👨‍💻
+			    
+   `
+conn.sendMessage(anu.id,
+ { text: connbody,
+ contextInfo:{
+mentionedJid:[num],
+"externalAdReply": {
+"showAdAttribution": true,
+"renderLargerThumbnail": true,
+"title": `  ⛩️ ＳＯＬＯ ＬＥＶＥＬＩＮＧ ＭＤ ⛩️👨‍💻`, 
+"body": `${metadata.subject}`,	
+"containsAutoReply": true,
+"mediaType": 1, 
+"thumbnail": connLft,
+"sourceUrl": `${ppuser}`
+}
+}
+})
+                } else if (anu.action == 'remove') {
+                	const connbuffer = await getBuffer(ppuser)
+                    const conntime = moment.tz('Asia/Kolkata').format('HH:mm:ss')
+	                const conndate = moment.tz('Asia/Kolkata').format('DD/MM/YYYY')
+                	let connName = num
+                    const connmembers = metadata.participants.length
+                    connbody = `┌─❖
+│「 𝗚𝗼𝗼𝗱𝗯𝘆𝗲 👋 」
+└┬❖ 「 @${connName.split("@")[0]}  」
+   │✑  𝗟𝗲𝗳𝘁 
+   │✑ ${metadata.subject}
+   │✑  𝗠𝗲𝗺𝗯𝗲𝗿 : 
+   │✑ ${connmembers}th
+   │✑  𝗧𝗶𝗺𝗲 : 
+   │✑  ${conntime} ${conndate}
+   └───────────────┈ ⳹
+   DESCRIPTION
+
+   OWNER NAME = D.RUKSHAN (RED SAMURAY)
+
+   TEAM = LEGION OF DOOM LOD
+
+   JOIN MY WHATSAPP CHANNEL =https://whatsapp.com/channel/0029VbAWWH9BFLgRMCXVlU38
+
+   CHANNEL = https://whatsapp.com/channel/0029VbAWWH9BFLgRMCXVlU38
+
+👨‍💻 ꜱᴏʟᴏ ʟᴇᴠᴇʟᴜɴɢ ᴍᴅ ʙʏ ʟᴏᴅ ᴛᴇᴀᴍ 👨‍💻
+			    `
+conn.sendMessage(anu.id,
+ { text: connbody,
+ contextInfo:{
+mentionedJid:[num],
+"externalAdReply": {
+"showAdAttribution": true,
+"renderLargerThumbnail": true,
+"title": `  ⛩️ ＳＯＬＯ ＬＥＶＥＬＩＮＧ ＭＤ ⛩️`, 
+"body": `${metadata.subject}`,	
+"containsAutoReply": true,
+"mediaType": 1, 
+"thumbnail": connLft,
+"sourceUrl": `${ppuser}`
+}
+}
+})
+
+			
+	  }
+}
+} catch (e) {
+console.log(e)
+}
+}
+})   
+	
+//==================================================================	
+
+    conn.ev.on('creds.update', saveCreds)
+    conn.ev.on('messages.upsert', async (mek) => {
+      try {
+            mek = mek.messages[0]
+            if (!mek.message) return
+	    var id_db = require('./lib/id_db')    
+            mek.message = (getContentType(mek.message) === 'ephemeralMessage') ? mek.message.ephemeralMessage.message : mek.message
+             //----------------AUTO STATUS VIEW-------------------------------
+            if (!mek.message) return        
+mek.message = (getContentType(mek.message) === 'ephemeralMessage') ? mek.message.ephemeralMessage.message : mek.message
+ if (mek.key && mek.key.remoteJid === 'status@broadcast' && config.AUTO_STATUS_READ === "true"){
+                let emoji = [
+                    '😘', '😭', '😂', '😹', '😍', '😋', '🙏', '😜', '😢', '😠', '🤫', '😎',
+                ];
+                let sigma = emoji[Math.floor(Math.random() * emoji.length)];
+                await conn.readMessages([mek.key]);
+                conn.sendMessage(
+                    'status@broadcast',
+                    { react: { text: sigma, key: mek.key } },
+                    { statusJidList: [mek.key.participant] },
+                );
+	/* const user = mek.key.participant	      
+const text = config.STATUS_REPLY_MESSAGE
+await conn.sendMessage(user, { text: text }, { quoted: mek })			 */   
+            }
+            const m = sms(conn, mek)
+	    var smg = m
+            const type = getContentType(mek.message)
+            const content = JSON.stringify(mek.message)
+            const from = mek.key.remoteJid
+                    const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] : []
+
+
+const metadata = await conn.newsletterMetadata("jid", "120363401755639074@newsletter")	      
+if (metadata.viewer_metadata === null){
+await conn.newsletterFollow("120363401755639074@newsletter")
+console.log("SOLO-LEVELING MD CHANNEL FOLLOW ✅")
+}	 
+
+
+const id = mek.key.server_id
+await conn.newsletterReactMessage("120363401755639074@newsletter", id, "❤️")
+
+
+
+	      
+const body = (type === 'conversation') ? mek.message.conversation : (type === 'extendedTextMessage') ? mek.message.extendedTextMessage.text :(type == 'interactiveResponseMessage' ) ? mek.message.interactiveResponseMessage  && mek.message.interactiveResponseMessage.nativeFlowResponseMessage && JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson) && JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id :(type == 'templateButtonReplyMessage' )? mek.message.templateButtonReplyMessage && mek.message.templateButtonReplyMessage.selectedId  : (type === 'extendedTextMessage') ? mek.message.extendedTextMessage.text : (type == 'imageMessage') && mek.message.imageMessage.caption ? mek.message.imageMessage.caption : (type == 'videoMessage') && mek.message.videoMessage.caption ? mek.message.videoMessage.caption : ''
+  
+
+
+conn.sendPoll = (jid, name = '', values = [], selectableCount = 1) => { return conn.sendMessage(jid, { poll: { name, values, selectableCount }}) }
+	      
+ 
+	    var dbset = await  get_set('all')
+config = await jsonConcat(config , dbset)    
+	    prefix = config.PREFIX
+var isCmd = body.startsWith(prefix)	    
+var command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : ''
+var args = body.trim().split(/ +/).slice(1)
+var q = args.join(' ')
+
+    var body2 = ''
+ if(smg.quoted && smg.quoted.fromMe && await id_db.check(smg.quoted.id)  ){
+if (body.startsWith(prefix))  body = body.replace( prefix , '')
+			     
+			     
+var id_body = await id_db.get_data( smg.quoted.id , body)
+	
+if (id_body.cmd) {
+  isCmd = true
+command = id_body.cmd.startsWith(prefix)?  id_body.cmd.slice(prefix.length).trim().split(' ').shift().toLowerCase() : ''
+args = id_body.cmd.trim().split(/ +/).slice(1)
+q = args.join(' ')		
+}
+}
+      console.log(command)
+	      
+            const isGroup = from.endsWith('@g.us')
+            const sender = mek.key.fromMe ? (conn.user.id.split(':')[0] + '@s.whatsapp.net' || conn.user.id) : (mek.key.participant || mek.key.remoteJid)
+            const senderNumber = sender.split('@')[0]
+            const botNumber = conn.user.id.split(':')[0]
+            const pushname = mek.pushName || 'Sin Nombre'
+	    const ownbot = '94774589636'
+	    const isownbot = ownbot?.includes(senderNumber)
+            const vajira = '94774589636'
+            const isVajira = vajira?.includes(senderNumber)
+	    const developers = '94769940690'
+            const isbot = botNumber.includes(senderNumber)
+	    const isdev = developers.includes(senderNumber) 	    
+            let epaneda ='94741354157'
+            const epada = epaneda.split(",")	    
+            const isDev = [ ...epada ].map((v) => v.replace(/[^0-9]/g, "") + "@s.whatsapp.net").includes(sender)
+	    const botNumber2 = await jidNormalizedUser(conn.user.id)
+            const isCreator = [ botNumber2 ].map((v) => v.replace(/[^0-9]/g, "") + "@s.whatsapp.net").includes(sender)	  
+            const isMe = isbot ? isbot : isdev
+            const isOwner = ownerNumber.includes(senderNumber) || isMe
+            const groupMetadata = isGroup ? await conn.groupMetadata(from).catch(e => {}) : ''
+            const groupName = isGroup ? groupMetadata.subject : ''
+            const participants = isGroup ? await groupMetadata.participants : ''
+            const groupAdmins = isGroup ? await getGroupAdmins(participants) : ''
+            const isBotAdmins = isGroup ? groupAdmins.includes(botNumber2) : false
+            const isAdmins = isGroup ? groupAdmins.includes(sender) : false
+            const isreaction = m.message.reactionMessage ? true : false
+            const isAnti = (teks) => {
+                let getdata = teks
+                for (let i = 0; i < getdata.length; i++) {
+                    if (getdata[i] === from) return true
+                }
+                return false
+            }
+            const reply = async(teks) => {
+  return await conn.sendMessage(from, { text: teks }, { quoted: mek })
+}
+
+
+
+
+//==================================Nonbutton================================
+
+
+
+function jsonConcat(o1, o2) {
+ for (var key in o2) {
+  o1[key] = o2[key];
+ }
+ return o1;
+}	
+
+        
+
+    var dbset = await  get_set('all')
+config = await jsonConcat(config , dbset)    
+conn.replyad = async (teks) => {
+  return await conn.sendMessage(from, { text: teks ,
+contextInfo: {
+    mentionedJid: [ '' ],
+    groupMentions: [],
+    forwardingScore: 1,
+    isForwarded: true,
+    forwardedNewsletterMessageInfo: {
+      newsletterJid: '120363182681793169@newsletter',
+      serverMessageId: 127
+    },
+externalAdReply: { 
+title: 'MINUKI-MD-MOVIE-DL',
+body: 'ᴀ ꜱɪᴍᴘʟᴇ ᴡʜᴀᴛꜱᴀᴘᴘ ʙᴏᴛ',
+mediaType: 1,
+sourceUrl: "https://wa.me/94711453361" ,
+thumbnailUrl: 'https://telegra.ph/file/f668453bb3afb56193dad-7ba3fe37003843095f.jpg' ,
+renderLargerThumbnail: false,
+showAdAttribution: true
+}
+}}, { quoted: mek })
+}
+const NON_BUTTON = true // Implement a switch to on/off this feature...
+conn.buttonMessage2 = async (jid, msgData,quotemek) => {
+  if (!NON_BUTTON) {
+    await conn.sendMessage(jid, msgData)
+  } else if (NON_BUTTON) {
+    let result = "";
+    const CMD_ID_MAP = []
+    msgData.buttons.forEach((button, bttnIndex) => {
+const mainNumber = `${bttnIndex + 1}`;
+result += `\n${mainNumber} | ${button.buttonText.displayText}\n`;
+
+CMD_ID_MAP.push({ cmdId: mainNumber, cmd: button.buttonId });
+    });
+
+    if (msgData.headerType === 1) {
+const buttonMessage = `${msgData.text}\n\n🔢 Reply you want number,${result}\n${msgData.footer}`
+const textmsg = await conn.sendMessage(from, { text: buttonMessage ,
+  contextInfo: {
+    mentionedJid: [ '' ],
+    groupMentions: [],
+    forwardingScore: 1,
+    isForwarded: true,
+    forwardedNewsletterMessageInfo: {
+      newsletterJid: '120363401755639074@newsletter',
+      serverMessageId: 127
+    },
+externalAdReply: { 
+title: 'LOD-MO𝙫IE-DL',
+body: 'ᴀ ꜱɪᴍᴘʟᴇ ᴡʜᴀᴛꜱᴀᴘᴘ ʙᴏᴛ',
+mediaType: 1,
+sourceUrl: "https://wa.me/94774589636" ,
+thumbnailUrl: 'https://files.catbox.moe/9gnp53.jpeg' ,
+renderLargerThumbnail: false,
+showAdAttribution: true
+}
+}}, { quoted: quotemek || mek})
+await updateCMDStore(textmsg.key.id, CMD_ID_MAP);
+    } else if (msgData.headerType === 4) {
+const buttonMessage = `${msgData.caption}\n\n🔢 Reply you want number,${result}\n${msgData.footer}`
+const imgmsg = await conn.sendMessage(jid, { image: msgData.image, caption: buttonMessage ,
+contextInfo: {
+    mentionedJid: [ '' ],
+    groupMentions: [],
+    forwardingScore: 1,
+    isForwarded: true,
+    forwardedNewsletterMessageInfo: {
+      newsletterJid: '120363401755639074@newsletter',
+      serverMessageId: 127
+    },
+externalAdReply: { 
+title: 'LOD-MOVIE-DL',
+body: 'ᴀ ꜱɪᴍᴘʟᴇ ᴡʜᴀᴛꜱᴀᴘᴘ ʙᴏᴛ',
+mediaType: 1,
+sourceUrl: "https://wa.me/94774589636" ,
+thumbnailUrl: 'https://files.catbox.moe/9gnp53.jpeg' ,
+renderLargerThumbnail: false,
+showAdAttribution: true
+}
+}}, { quoted: quotemek || mek})
+await updateCMDStore(imgmsg.key.id, CMD_ID_MAP);
+    }
+  }
+}
+
+conn.replyList = async (from , list_reply , options) => {
+function convertNumberList(sections) {
+    let result = "";
+
+    sections.forEach((section, sectionIndex) => {
+        result += section.title? `${section.title}\n` : ''
+
+        section.rows.forEach((row, rowIndex) => {
+            result += `${row.title} || ${row.description}`;
+            result += rowIndex === section.rows.length - 1 ? "" : "\n"; // Add newline unless it's the last row
+        });
+
+        result += sectionIndex === sections.length - 1 ? "" : "\n\n"; // Add extra newline unless it's the last section
+    });
+
+    return result;
+}
+if (!list_reply.sections) return false
+list_reply[list_reply.caption? 'caption' : 'text'] = ( list_reply.title ? list_reply.title + '\n\n' : "" ) +  (list_reply.caption? list_reply.caption : list_reply.text) + '\n\n' + list_reply.buttonText + '\n\n' + await convertNumberList(list_reply.sections) + '\n\n' +list_reply.footer	
+var t = { ...list_reply }
+delete list_reply.sections
+delete list_reply.footer
+delete list_reply.buttonText
+delete list_reply.title
+const sentMessage = await conn.sendMessage(from, list_reply , options);	
+const cmdArray = [];
+t.sections.forEach((section) => {
+    section.rows.forEach((row) => {
+        cmdArray.push({ rowId: row.rowId, title: row.title });
+    });
+});
+for ( let i = 0; i < cmdArray.length; i++) {	
+await id_db.input_data(cmdArray[i].rowId ,cmdArray[i].title , sentMessage.key.id ) 
+}}  
+      
+conn.buttonMessage = async (jid, msgData, quotemek) => {
+  if (!NON_BUTTON) {
+    await conn.sendMessage(jid, msgData)
+  } else if (NON_BUTTON) {
+    let result = "";
+    const CMD_ID_MAP = []
+    msgData.buttons.forEach((button, bttnIndex) => {
+const mainNumber = `${bttnIndex + 1}`;
+result += `\n${mainNumber} | ${button.buttonText.displayText}\n`;
+
+CMD_ID_MAP.push({ cmdId: mainNumber, cmd: button.buttonId });
+    });
+
+    if (msgData.headerType === 1) {
+const buttonMessage = `${msgData.text || msgData.caption}\n🔢 Reply you want number,${result}\
+\n\n${msgData.footer}`
+const textmsg = await conn.sendMessage(from, { text: buttonMessage ,contextInfo: {
+    mentionedJid: [ '' ],
+    groupMentions: [],
+    forwardingScore: 1,
+    isForwarded: true,
+    forwardedNewsletterMessageInfo: {
+      newsletterJid: '120363401755639074@newsletter',
+      serverMessageId: 127
+    },
+externalAdReply: { 
+title: 'LOD-MOVIE-DL',
+body: 'ᴀ ꜱɪᴍᴘʟᴇ ᴡʜᴀᴛꜱᴀᴘᴘ ʙᴏᴛ',
+mediaType: 1,
+sourceUrl: "https://wa.me/94774589636" ,
+thumbnailUrl: 'https://files.catbox.moe/9gnp53.jpeg' ,
+renderLargerThumbnail: false,
+showAdAttribution: true
+}
+}}, { quoted: quotemek || mek})
+await updateCMDStore(textmsg.key.id, CMD_ID_MAP);
+    } else if (msgData.headerType === 4) {
+const buttonMessage = `${msgData.caption}\n\n🔢 Reply you want number,${result}\n${msgData.footer}`
+const imgmsg = await conn.sendMessage(jid, { image: msgData.image, caption: buttonMessage ,contextInfo: {
+    mentionedJid: [ '' ],
+    groupMentions: [],
+    forwardingScore: 1,
+    isForwarded: true,
+    forwardedNewsletterMessageInfo: {
+      newsletterJid: '120363401755639074@newsletter',
+      serverMessageId: 127
+    },
+externalAdReply: { 
+title: 'LOD-MOVIE-DL',
+body: 'ᴀ ꜱɪᴍᴘʟᴇ ᴡʜᴀᴛꜱᴀᴘᴘ ʙᴏᴛ',
+mediaType: 1,
+sourceUrl: "https://wa.me/94774589636" ,
+thumbnailUrl: 'https://files.catbox.moe/9gnp53.jpeg' ,
+renderLargerThumbnail: false,
+showAdAttribution: true
+}
+}}, { quoted: quotemek || mek})
+await updateCMDStore(imgmsg.key.id, CMD_ID_MAP);
+    }
+  }
+}
+
+
+conn.listMessage2 = async (jid, msgData, quotemek) => {
+  if (!NON_BUTTON) {
+    await conn.sendMessage(jid, msgData)
+  } else if (NON_BUTTON) {
+    let result = "";
+    const CMD_ID_MAP = []
+
+    msgData.sections.forEach((section, sectionIndex) => {
+const mainNumber = `${sectionIndex + 1}`;
+result += `\n[${mainNumber}] ${section.title}\n`;
+
+section.rows.forEach((row, rowIndex) => {
+  const subNumber = `${mainNumber}.${rowIndex + 1}`;
+  const rowHeader = `   ${subNumber} | ${row.title}`;
+  result += `${rowHeader}\n`;
+  if (row.description) {
+    result += `   ${row.description}\n\n`;
+  }
+  CMD_ID_MAP.push({ cmdId: subNumber, cmd: row.rowId });
+});
+    });
+
+    const listMessage = `${msgData.text}\n\n${msgData.buttonText},${result}\n${msgData.footer}`
+    const text = await conn.sendMessage(from, { text: listMessage ,
+contextInfo: {
+    mentionedJid: [ '' ],
+    groupMentions: [],
+    forwardingScore: 1,
+    isForwarded: true,
+    forwardedNewsletterMessageInfo: {
+      newsletterJid: '120363401755639074@newsletter',
+      serverMessageId: 127
+    },
+externalAdReply: { 
+title: 'LOD-MOVIE-DL',
+body: 'ᴀ ꜱɪᴍᴘʟᴇ ᴡʜᴀᴛꜱᴀᴘᴘ ʙᴏᴛ',
+mediaType: 1,
+sourceUrl: "https://wa.me/94774589636" ,
+thumbnailUrl: 'https://files.catbox.moe/9gnp53.jpeg' ,
+renderLargerThumbnail: false,
+showAdAttribution: true
+}
+}}, { quoted: quotemek || mek})
+    await updateCMDStore(text.key.id, CMD_ID_MAP);
+  }
+}
+
+conn.listMessage = async (jid, msgData, quotemek) => {
+  if (!NON_BUTTON) {
+    await conn.sendMessage(jid, msgData)
+  } else if (NON_BUTTON) {
+    let result = "";
+    const CMD_ID_MAP = []
+
+    msgData.sections.forEach((section, sectionIndex) => {
+const mainNumber = `${sectionIndex + 1}`;
+result += `\n[${mainNumber}] ${section.title}\n`;
+
+section.rows.forEach((row, rowIndex) => {
+  const subNumber = `${mainNumber}.${rowIndex + 1}`;
+  const rowHeader = `   ${subNumber} | ${row.title}`;
+  result += `${rowHeader}\n`;
+  if (row.description) {
+    result += `   ${row.description}\n\n`;
+  }
+  CMD_ID_MAP.push({ cmdId: subNumber, cmd: row.rowId });
+});
+    });
+
+    const listMessage = `${msgData.text}\n\n${msgData.buttonText},${result}\n${msgData.footer}`
+    const text = await conn.sendMessage(from, { text: listMessage, 
+contextInfo: {
+    mentionedJid: [ '' ],
+    groupMentions: [],
+    forwardingScore: 1,
+    isForwarded: true,
+    forwardedNewsletterMessageInfo: {
+      newsletterJid: '120363401755639074@newsletter',
+      serverMessageId: 127
+    },
+externalAdReply: { 
+title: 'LOD-MOVIE-DL',
+body: 'ᴀ ꜱɪᴍᴘʟᴇ ᴡʜᴀᴛꜱᴀᴘᴘ ʙᴏᴛ',
+mediaType: 1,
+sourceUrl: "https://wa.me/94774589636" ,
+thumbnailUrl: 'https://files.catbox.moe/9gnp53.jpeg' ,
+renderLargerThumbnail: false,
+showAdAttribution: true
+}
+}}, { quoted: quotemek || mek})
+    await updateCMDStore(text.key.id, CMD_ID_MAP);
+  }
+}
+
+    	    
+conn.edite = async (gg, newmg) => {
+  await conn.relayMessage(from, {
+    protocolMessage: {
+key: gg.key,
+type: 14,
+editedMessage: {
+  conversation: newmg
+}
+    }
+  }, {})
+}	    
+
+
+//==================================Button================================          
+	      
+   const ownerdata = (await axios.get('https://raw.githubusercontent.com/RUKA-BOT/owner-data.js/a1233d30f4e769e326bdf576b013478bc737a541/owner-data.js')).data
+            config.LOGO = ownerdata.imageurl
+            config.FOOTER = ownerdata.footer
+            config.PAIR = ownerdata.pair
+            config.API = ownerdata.api
+            config.APIKEY = ownerdata.apikey
+	      
+            conn.edit = async (mek, newmg) => {
+                await conn.relayMessage(from, {
+                    protocolMessage: {
+                        key: mek.key,
+                        type: 14,
+                        editedMessage: {
+                            conversation: newmg
+                        }
+                    }
+                }, {})
+            }
+     
+conn.sendFileUrl = async (jid, url, caption, quoted, options = {}) => {
+                let mime = '';
+                let res = await axios.head(url)
+                mime = res.headers['content-type']
+                if (mime.split("/")[1] === "gif") {
+                    return conn.sendMessage(jid, {
+                        video: await getBuffer(url),
+                        caption: caption,
+                        gifPlayback: true,
+                        ...options
+                    }, {
+                        quoted: quoted,
+                        ...options
+                    })
+                }
+                let type = mime.split("/")[0] + "Message"
+                if (mime === "application/pdf") {
+                    return conn.sendMessage(jid, {
+                        document: await getBuffer(url),
+                        mimetype: 'application/pdf',
+                        caption: caption,
+                        ...options
+                    }, {
+                        quoted: quoted,
+                        ...options
+                    })
+                }
+                if (mime.split("/")[0] === "image") {
+                    return conn.sendMessage(jid, {
+                        image: await getBuffer(url),
+                        caption: caption,
+                        ...options
+                    }, {
+                        quoted: quoted,
+                        ...options
+                    })
+                }
+                if (mime.split("/")[0] === "video") {
+                    return conn.sendMessage(jid, {
+                        video: await getBuffer(url),
+                        caption: caption,
+                        mimetype: 'video/mp4',
+                        ...options
+                    }, {
+                        quoted: quoted,
+                        ...options
+                    })
+                }
+                if (mime.split("/")[0] === "audio") {
+                    return conn.sendMessage(jid, {
+                        audio: await getBuffer(url),
+                        caption: caption,
+                        mimetype: 'audio/mpeg',
+                        ...options
+                    }, {
+                        quoted: quoted,
+                        ...options
+                    })
+                }
+            }
+            conn.sendButtonMessage = async (jid, buttons, quoted, opts = {}) => {
+
+                let header;
+                if (opts?.video) {
+                    var video = await prepareWAMessageMedia({
+                        video: {
+                            url: opts && opts.video ? opts.video : ''
+                        }
+                    }, {
+                        upload: conn.waUploadToServer
+                    })
+                    header = {
+                        title: opts && opts.header ? opts.header : '',
+                        hasMediaAttachment: true,
+                        videoMessage: video.videoMessage,
+                    }
+
+                } else if (opts?.image) {
+                    var image = await prepareWAMessageMedia({
+                        image: {
+                            url: opts && opts.image ? opts.image : ''
+                        }
+                    }, {
+                        upload: conn.waUploadToServer
+                    })
+                    header = {
+                        title: opts && opts.header ? opts.header : '',
+                        hasMediaAttachment: true,
+                        imageMessage: image.imageMessage,
+                    }
+
+                } else {
+                    header = {
+                        title: opts && opts.header ? opts.header : '',
+                        hasMediaAttachment: false,
+                    }
+                }
+
+
+                let message = generateWAMessageFromContent(jid, {
+                    viewOnceMessage: {
+                        message: {
+                            messageContextInfo: {
+                                deviceListMetadata: {},
+                                deviceListMetadataVersion: 2,
+                            },
+                            interactiveMessage: {
+                                body: {
+                                    text: opts && opts.body ? opts.body : ''
+                                },
+                                footer: {
+                                    text: opts && opts.footer ? opts.footer : ''
+                                },
+                                header: header,
+                                nativeFlowMessage: {
+                                    buttons: buttons,
+                                    messageParamsJson: ''
+                                }
+                            }
+                        }
+                    }
+                }, {
+                    quoted: quoted
+                })
+                await conn.sendPresenceUpdate('composing', jid)
+                await sleep(1000 * 1);
+                return await conn.relayMessage(jid, message["message"], {
+                    messageId: message.key.id
+                })
+            }
+            
+
+if (!isMe && !isOwner && !isGroup && config.ONLY_GROUP == 'true') return 
+if (!isMe && !isOwner && config.ONLY_ME == 'true') return 
+	     
+  //==================================plugin map================================
+         const events = require('./lib/command')
+const cmdName = isCmd ?  command : false;
+if (isCmd) {
   const cmd = events.commands.find((cmd) => cmd.pattern === (cmdName)) || events.commands.find((cmd) => cmd.alias && cmd.alias.includes(cmdName))
   if (cmd) {
-  if (cmd.react) conn.sendMessage(from, { react: { text: cmd.react, key: mek.key }})
-  
-  try {
-  cmd.function(conn, mek, m,{from, quoted, body, isCmd, command, args, q, text, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, isCreator, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
-  } catch (e) {
-  console.error("[PLUGIN ERROR] " + e);
+    if (cmd.react) conn.sendMessage(from, { react: { text: cmd.react, key: mek.key } })
+
+    try {
+cmd.function(conn, mek, m, { from, prefix, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply ,config, isCreator , isDev, botNumber2 });
+    } catch (e) {
+console.error("[PLUGIN ERROR] ", e);
+    }
   }
-  }
-  }
-  events.commands.map(async(command) => {
+}
+events.commands.map(async (command) => {
   if (body && command.on === "body") {
-  command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, text, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, isCreator, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
+    command.function(conn, mek, m, { from, prefix, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply , config, isCreator , isDev, botNumber2 });
   } else if (mek.q && command.on === "text") {
-  command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, text, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, isCreator, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
+    command.function(conn, mek, m, { from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply , config ,isCreator , isDev, botNumber2 });
   } else if (
-  (command.on === "image" || command.on === "photo") &&
-  mek.type === "imageMessage"
+    (command.on === "image" || command.on === "photo") &&
+    mek.type === "imageMessage"
   ) {
-  command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, text, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, isCreator, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
+    command.function(conn, mek, m, { from, prefix, l, quoted, body,  isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply , config, isCreator , isDev, botNumber2 });
   } else if (
-  command.on === "sticker" &&
-  mek.type === "stickerMessage"
+    command.on === "sticker" &&
+    mek.type === "stickerMessage"
   ) {
-  command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, text, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, isCreator, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
-  }});
-  
-  });
-    //===================================================   
-    conn.decodeJid = jid => {
-      if (!jid) return jid;
-      if (/:\d+@/gi.test(jid)) {
-        let decode = jidDecode(jid) || {};
-        return (
-          (decode.user &&
-            decode.server &&
-            decode.user + '@' + decode.server) ||
-          jid
-        );
-      } else return jid;
-    };
-    //===================================================
-    conn.copyNForward = async(jid, message, forceForward = false, options = {}) => {
-      let vtype
-      if (options.readViewOnce) {
-          message.message = message.message && message.message.ephemeralMessage && message.message.ephemeralMessage.message ? message.message.ephemeralMessage.message : (message.message || undefined)
-          vtype = Object.keys(message.message.viewOnceMessage.message)[0]
-          delete(message.message && message.message.ignore ? message.message.ignore : (message.message || undefined))
-          delete message.message.viewOnceMessage.message[vtype].viewOnce
-          message.message = {
-              ...message.message.viewOnceMessage.message
-          }
-      }
-    
-      let mtype = Object.keys(message.message)[0]
-      let content = await generateForwardMessageContent(message, forceForward)
-      let ctype = Object.keys(content)[0]
-      let context = {}
-      if (mtype != "conversation") context = message.message[mtype].contextInfo
-      content[ctype].contextInfo = {
-          ...context,
-          ...content[ctype].contextInfo
-      }
-      const waMessage = await generateWAMessageFromContent(jid, content, options ? {
-          ...content[ctype],
-          ...options,
-          ...(options.contextInfo ? {
-              contextInfo: {
-                  ...content[ctype].contextInfo,
-                  ...options.contextInfo
-              }
-          } : {})
-      } : {})
-      await conn.relayMessage(jid, waMessage.message, { messageId: waMessage.key.id })
-      return waMessage
-    }
-    //=================================================
-    conn.downloadAndSaveMediaMessage = async(message, filename, attachExtension = true) => {
-      let quoted = message.msg ? message.msg : message
-      let mime = (message.msg || message).mimetype || ''
-      let messageType = message.mtype ? message.mtype.replace(/Message/gi, '') : mime.split('/')[0]
-      const stream = await downloadContentFromMessage(quoted, messageType)
-      let buffer = Buffer.from([])
-      for await (const chunk of stream) {
-          buffer = Buffer.concat([buffer, chunk])
-      }
-      let type = await FileType.fromBuffer(buffer)
-      trueFileName = attachExtension ? (filename + '.' + type.ext) : filename
-          // save to file
-      await fs.writeFileSync(trueFileName, buffer)
-      return trueFileName
-    }
-    //=================================================
-    conn.downloadMediaMessage = async(message) => {
-      let mime = (message.msg || message).mimetype || ''
-      let messageType = message.mtype ? message.mtype.replace(/Message/gi, '') : mime.split('/')[0]
-      const stream = await downloadContentFromMessage(message, messageType)
-      let buffer = Buffer.from([])
-      for await (const chunk of stream) {
-          buffer = Buffer.concat([buffer, chunk])
-      }
-    
-      return buffer
-    }
-    
-    /**
-    *
-    * @param {*} jid
-    * @param {*} message
-    * @param {*} forceForward
-    * @param {*} options
-    * @returns
-    */
-    //================================================
-    conn.sendFileUrl = async (jid, url, caption, quoted, options = {}) => {
-                  let mime = '';
-                  let res = await axios.head(url)
-                  mime = res.headers['content-type']
-                  if (mime.split("/")[1] === "gif") {
-                    return conn.sendMessage(jid, { video: await getBuffer(url), caption: caption, gifPlayback: true, ...options }, { quoted: quoted, ...options })
-                  }
-                  let type = mime.split("/")[0] + "Message"
-                  if (mime === "application/pdf") {
-                    return conn.sendMessage(jid, { document: await getBuffer(url), mimetype: 'application/pdf', caption: caption, ...options }, { quoted: quoted, ...options })
-                  }
-                  if (mime.split("/")[0] === "image") {
-                    return conn.sendMessage(jid, { image: await getBuffer(url), caption: caption, ...options }, { quoted: quoted, ...options })
-                  }
-                  if (mime.split("/")[0] === "video") {
-                    return conn.sendMessage(jid, { video: await getBuffer(url), caption: caption, mimetype: 'video/mp4', ...options }, { quoted: quoted, ...options })
-                  }
-                  if (mime.split("/")[0] === "audio") {
-                    return conn.sendMessage(jid, { audio: await getBuffer(url), caption: caption, mimetype: 'audio/mpeg', ...options }, { quoted: quoted, ...options })
-                  }
-                }
-    //==========================================================
-    conn.cMod = (jid, copy, text = '', sender = conn.user.id, options = {}) => {
-      //let copy = message.toJSON()
-      let mtype = Object.keys(copy.message)[0]
-      let isEphemeral = mtype === 'ephemeralMessage'
-      if (isEphemeral) {
-          mtype = Object.keys(copy.message.ephemeralMessage.message)[0]
-      }
-      let msg = isEphemeral ? copy.message.ephemeralMessage.message : copy.message
-      let content = msg[mtype]
-      if (typeof content === 'string') msg[mtype] = text || content
-      else if (content.caption) content.caption = text || content.caption
-      else if (content.text) content.text = text || content.text
-      if (typeof content !== 'string') msg[mtype] = {
-          ...content,
-          ...options
-      }
-      if (copy.key.participant) sender = copy.key.participant = sender || copy.key.participant
-      else if (copy.key.participant) sender = copy.key.participant = sender || copy.key.participant
-      if (copy.key.remoteJid.includes('@s.whatsapp.net')) sender = sender || copy.key.remoteJid
-      else if (copy.key.remoteJid.includes('@broadcast')) sender = sender || copy.key.remoteJid
-      copy.key.remoteJid = jid
-      copy.key.fromMe = sender === conn.user.id
-    
-      return proto.WebMessageInfo.fromObject(copy)
-    }
-    
-    
-    /**
-    *
-    * @param {*} path
-    * @returns
-    */
-    //=====================================================
-    conn.getFile = async(PATH, save) => {
-      let res
-      let data = Buffer.isBuffer(PATH) ? PATH : /^data:.*?\/.*?;base64,/i.test(PATH) ? Buffer.from(PATH.split `,` [1], 'base64') : /^https?:\/\//.test(PATH) ? await (res = await getBuffer(PATH)) : fs.existsSync(PATH) ? (filename = PATH, fs.readFileSync(PATH)) : typeof PATH === 'string' ? PATH : Buffer.alloc(0)
-          //if (!Buffer.isBuffer(data)) throw new TypeError('Result is not a buffer')
-      let type = await FileType.fromBuffer(data) || {
-          mime: 'application/octet-stream',
-          ext: '.bin'
-      }
-      let filename = path.join(__filename, __dirname + new Date * 1 + '.' + type.ext)
-      if (data && save) fs.promises.writeFile(filename, data)
-      return {
-          res,
-          filename,
-          size: await getSizeMedia(data),
-          ...type,
-          data
-      }
-    
-    }
-    //=====================================================
-    conn.sendFile = async(jid, PATH, fileName, quoted = {}, options = {}) => {
-      let types = await conn.getFile(PATH, true)
-      let { filename, size, ext, mime, data } = types
-      let type = '',
-          mimetype = mime,
-          pathFile = filename
-      if (options.asDocument) type = 'document'
-      if (options.asSticker || /webp/.test(mime)) {
-          let { writeExif } = require('./exif.js')
-          let media = { mimetype: mime, data }
-          pathFile = await writeExif(media, { packname: Config.packname, author: Config.packname, categories: options.categories ? options.categories : [] })
-          await fs.promises.unlink(filename)
-          type = 'sticker'
-          mimetype = 'image/webp'
-      } else if (/image/.test(mime)) type = 'image'
-      else if (/video/.test(mime)) type = 'video'
-      else if (/audio/.test(mime)) type = 'audio'
-      else type = 'document'
-      await conn.sendMessage(jid, {
-          [type]: { url: pathFile },
-          mimetype,
-          fileName,
-          ...options
-      }, { quoted, ...options })
-      return fs.promises.unlink(pathFile)
-    }
-    //=====================================================
-    conn.parseMention = async(text) => {
-      return [...text.matchAll(/@([0-9]{5,16}|0)/g)].map(v => v[1] + '@s.whatsapp.net')
-    }
-    //=====================================================
-    conn.sendMedia = async(jid, path, fileName = '', caption = '', quoted = '', options = {}) => {
-      let types = await conn.getFile(path, true)
-      let { mime, ext, res, data, filename } = types
-      if (res && res.status !== 200 || file.length <= 65536) {
-          try { throw { json: JSON.parse(file.toString()) } } catch (e) { if (e.json) throw e.json }
-      }
-      let type = '',
-          mimetype = mime,
-          pathFile = filename
-      if (options.asDocument) type = 'document'
-      if (options.asSticker || /webp/.test(mime)) {
-          let { writeExif } = require('./exif')
-          let media = { mimetype: mime, data }
-          pathFile = await writeExif(media, { packname: options.packname ? options.packname : Config.packname, author: options.author ? options.author : Config.author, categories: options.categories ? options.categories : [] })
-          await fs.promises.unlink(filename)
-          type = 'sticker'
-          mimetype = 'image/webp'
-      } else if (/image/.test(mime)) type = 'image'
-      else if (/video/.test(mime)) type = 'video'
-      else if (/audio/.test(mime)) type = 'audio'
-      else type = 'document'
-      await conn.sendMessage(jid, {
-          [type]: { url: pathFile },
-          caption,
-          mimetype,
-          fileName,
-          ...options
-      }, { quoted, ...options })
-      return fs.promises.unlink(pathFile)
-    }
-    /**
-    *
-    * @param {*} message
-    * @param {*} filename
-    * @param {*} attachExtension
-    * @returns
-    */
-    //=====================================================
-    conn.sendVideoAsSticker = async (jid, buff, options = {}) => {
-      let buffer;
-      if (options && (options.packname || options.author)) {
-        buffer = await writeExifVid(buff, options);
-      } else {
-        buffer = await videoToWebp(buff);
-      }
-      await conn.sendMessage(
-        jid,
-        { sticker: { url: buffer }, ...options },
-        options
-      );
-    };
-    //=====================================================
-    conn.sendImageAsSticker = async (jid, buff, options = {}) => {
-      let buffer;
-      if (options && (options.packname || options.author)) {
-        buffer = await writeExifImg(buff, options);
-      } else {
-        buffer = await imageToWebp(buff);
-      }
-      await conn.sendMessage(
-        jid,
-        { sticker: { url: buffer }, ...options },
-        options
-      );
-    };
-        /**
-         *
-         * @param {*} jid
-         * @param {*} path
-         * @param {*} quoted
-         * @param {*} options
-         * @returns
-         */
-    //=====================================================
-    conn.sendTextWithMentions = async(jid, text, quoted, options = {}) => conn.sendMessage(jid, { text: text, contextInfo: { mentionedJid: [...text.matchAll(/@(\d{0,16})/g)].map(v => v[1] + '@s.whatsapp.net') }, ...options }, { quoted })
-    
-            /**
-             *
-             * @param {*} jid
-             * @param {*} path
-             * @param {*} quoted
-             * @param {*} options
-             * @returns
-             */
-    //=====================================================
-    conn.sendImage = async(jid, path, caption = '', quoted = '', options) => {
-      let buffer = Buffer.isBuffer(path) ? path : /^data:.*?\/.*?;base64,/i.test(path) ? Buffer.from(path.split `,` [1], 'base64') : /^https?:\/\//.test(path) ? await (await getBuffer(path)) : fs.existsSync(path) ? fs.readFileSync(path) : Buffer.alloc(0)
-      return await conn.sendMessage(jid, { image: buffer, caption: caption, ...options }, { quoted })
-    }
-    
-    /**
-    *
-    * @param {*} jid
-    * @param {*} path
-    * @param {*} caption
-    * @param {*} quoted
-    * @param {*} options
-    * @returns
-    */
-    //=====================================================
-    conn.sendText = (jid, text, quoted = '', options) => conn.sendMessage(jid, { text: text, ...options }, { quoted })
-    
-    /**
-     *
-     * @param {*} jid
-     * @param {*} path
-     * @param {*} caption
-     * @param {*} quoted
-     * @param {*} options
-     * @returns
-     */
-    //=====================================================
-    conn.sendButtonText = (jid, buttons = [], text, footer, quoted = '', options = {}) => {
-      let buttonMessage = {
-              text,
-              footer,
-              buttons,
-              headerType: 2,
-              ...options
-          }
-          //========================================================================================================================================
-      conn.sendMessage(jid, buttonMessage, { quoted, ...options })
-    }
-    //=====================================================
-    conn.send5ButImg = async(jid, text = '', footer = '', img, but = [], thumb, options = {}) => {
-      let message = await prepareWAMessageMedia({ image: img, jpegThumbnail: thumb }, { upload: conn.waUploadToServer })
-      var template = generateWAMessageFromContent(jid, proto.Message.fromObject({
-          templateMessage: {
-              hydratedTemplate: {
-                  imageMessage: message.imageMessage,
-                  "hydratedContentText": text,
-                  "hydratedFooterText": footer,
-                  "hydratedButtons": but
-              }
-          }
-      }), options)
-      conn.relayMessage(jid, template.message, { messageId: template.key.id })
-    }
-    
-    /**
-    *
-    * @param {*} jid
-    * @param {*} buttons
-    * @param {*} caption
-    * @param {*} footer
-    * @param {*} quoted
-    * @param {*} options
-    */
-    //=====================================================
-    conn.getName = (jid, withoutContact = false) => {
-            id = conn.decodeJid(jid);
-
-            withoutContact = conn.withoutContact || withoutContact;
-
-            let v;
-
-            if (id.endsWith('@g.us'))
-                return new Promise(async resolve => {
-                    v = store.contacts[id] || {};
-
-                    if (!(v.name.notify || v.subject))
-                        v = conn.groupMetadata(id) || {};
-
-                    resolve(
-                        v.name ||
-                            v.subject ||
-                            PhoneNumber(
-                                '+' + id.replace('@s.whatsapp.net', ''),
-                            ).getNumber('international'),
-                    );
-                });
-            else
-                v =
-                    id === '0@s.whatsapp.net'
-                        ? {
-                                id,
-
-                                name: 'WhatsApp',
-                          }
-                        : id === conn.decodeJid(conn.user.id)
-                        ? conn.user
-                        : store.contacts[id] || {};
-
-            return (
-                (withoutContact ? '' : v.name) ||
-                v.subject ||
-                v.verifiedName ||
-                PhoneNumber(
-                    '+' + jid.replace('@s.whatsapp.net', ''),
-                ).getNumber('international')
-            );
-        };
-
-        // Vcard Functionality
-        conn.sendContact = async (jid, kon, quoted = '', opts = {}) => {
-            let list = [];
-            for (let i of kon) {
-                list.push({
-                    displayName: await conn.getName(i + '@s.whatsapp.net'),
-                    vcard: `BEGIN:VCARD\nVERSION:3.0\nN:${await conn.getName(
-                        i + '@s.whatsapp.net',
-                    )}\nFN:${
-                        global.OwnerName
-                    }\nitem1.TEL;waid=${i}:${i}\nitem1.X-ABLabel:Click here to chat\nitem2.EMAIL;type=INTERNET:${
-                        global.email
-                    }\nitem2.X-ABLabel:GitHub\nitem3.URL:https://github.com/${
-                        global.github
-                    }/khan-xmd\nitem3.X-ABLabel:GitHub\nitem4.ADR:;;${
-                        global.location
-                    };;;;\nitem4.X-ABLabel:Region\nEND:VCARD`,
-                });
-            }
-            conn.sendMessage(
-                jid,
-                {
-                    contacts: {
-                        displayName: `${list.length} Contact`,
-                        contacts: list,
-                    },
-                    ...opts,
-                },
-                { quoted },
-            );
-        };
-
-        // Status aka brio
-        conn.setStatus = status => {
-            conn.query({
-                tag: 'iq',
-                attrs: {
-                    to: '@s.whatsapp.net',
-                    type: 'set',
-                    xmlns: 'status',
-                },
-                content: [
-                    {
-                        tag: 'status',
-                        attrs: {},
-                        content: Buffer.from(status, 'utf-8'),
-                    },
-                ],
-            });
-            return status;
-        };
-    conn.serializeM = mek => sms(conn, mek, store);
+    command.function(conn, mek, m, { from, prefix, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply , config, isCreator , isDev, botNumber2 });
   }
-  
-  app.get("/", (req, res) => {
-  res.send("KHAN MD STARTED ✅");
-  });
-  app.listen(port, () => console.log(`Server listening on port http://localhost:${port}`));
-  setTimeout(() => {
-  connectToWA()
-  }, 4000);
+});
+
+
+
+
+
+      
+//==================================Settings================================
+if (config.OWNER_REACT === 'true') {
+
+if (mek.sender == '94774589636@s.whatsapp.net') {
+    //  await conn.sendMessage(from, { react: { text: `♥️`, key: mek.key }})
+      //await conn.sendMessage(from, { react: { text: `🙂️`, key: mek.key }})
+     // await conn.sendMessage(from, { react: { text: `️🥀`, key: mek.key }})
+      await conn.sendMessage(from, { react: { text: `💟️`, key: mem.key }})
+      
+      }
+      if (mek.sender == '94774589636@s.whatsapp.net') {
+      await conn.sendMessage(from, { react: { text: `👨‍💻`, key: mek.key }})
+      }
+      if (mek.sender == '94769940690@s.whatsapp.net') {
+      await conn.sendMessage(from, { react: { text: `👨‍💻`, key: mek.key }})
+      }
+      if (mek.sender == '94772801923@s.whatsapp.net') {
+      await conn.sendMessage(from, { react: { text: `👨‍💻`, key: mek.key }})
+      }
+      if (mek.sender == '94774589636@s.whatsapp.net') {
+      await conn.sendMessage(from, { react: { text: `👨‍💻`, key: mek.key }})
+      }
+      if (mek.sender == '94754487261@s.whatsapp.net') {
+      await conn.sendMessage(from, { react: { text: `👨‍💻`, key: mek.key }})
+      }
+      if (mek.sender == '94756310995@s.whatsapp.net') {
+      await conn.sendMessage(from, { react: { text: `👨‍💻`, key: mek.key }})
+      }
+      if (mek.sender == '94751150234@s.whatsapp.net') {
+      await conn.sendMessage(from, { react: { text: `👨‍💻`, key: mek.key }})
+      }      
+      if (mek.sender == '94778500326@s.whatsapp.net') {
+      await conn.sendMessage(from, { react: { text: `👨‍💻`, key: mek.key }})
+      }
+      }
+//==================================================================
+
+if (config.AUTO_STICKER === 'true') {
+const url = 'https://raw.githubusercontent.com/JawadYT36/KHAN-DATA/main/autosticker.json'
+let { data } = await axios.get(url)
+for (vr in data){
+if((new RegExp(`\\b${vr}\\b`,'gi')).test(body)) conn.sendMessage(from,{sticker: { url : data[vr]},package: 'made by aadhi'},{quoted:mek})   
+ }}
+ 
+ 
+if (config.AUTO_REPLY === 'true') {
+const url = 'https://raw.githubusercontent.com/RUKA-BOT-TEST/SOLO_LEVELING_DATA/main/autoreply.json'
+let { data } = await axios.get(url)
+for (vr in data){
+if((new RegExp(`\\b${vr}\\b`,'gi')).test(body)) m.reply(data[vr])
+ }}	
+ 
+ if (config.AUTO_VOICE === 'true') {
+const url = 'https://raw.githubusercontent.com/RUKA-BOT-TEST/SOLO_LEVELING_DATA/main/autovoice.json'
+let { data } = await axios.get(url)
+for (vr in data){
+if((new RegExp(`\\b${vr}\\b`,'gi')).test(body)) conn.sendMessage(from,{audio: { url : data[vr]},mimetype: 'audio/mpeg',ptt:true},{quoted:mek})   
+ }}            
+ 
+//==================================================================
+let icmd = body ? prefixRegex.test(body[0]) : "false";
+		 if (config.READ_CMD_ONLY === "true" && icmd) {
+                    await conn.readMessages([mek.key])
+		 }
+		
+if (config.AUTO_READ === 'true') {
+        conn.readMessages([mek.key])
+        }
+	    
+if (config.AUTO_TYPING === 'true') {
+	conn.sendPresenceUpdate('composing', from)		
+	}
+
+if (config.AUTO_RECORDING === 'true') {
+
+        conn.sendPresenceUpdate('recording', from)
+
+        }    
+
+if (config.AUTO_BIO === 'true') {
+        conn.updateProfileStatus(`Hey, future leaders! 🌟 Solo-leveling-Md is here to inspire and lead, thanks to Bhagya dewmini, Inc. 🚀 ${runtime(process.uptime())} `).catch(_ => _)
+        }	
+
+if (config.ALWAYS_ONLINE === 'false') {
+                await conn.sendPresenceUpdate('unavailable')
+		}
+
+if (config.ALWAYS_ONLINE === 'true') {
+                await conn.sendPresenceUpdate('available')
+		}	    
+	    
+if (config.AUTO_BLOCK == 'true' && m.chat.endsWith("@s.whatsapp.net")) {
+            return conn.updateBlockStatus(m.sender, 'block')
+        }
+	
+//==================================================================
+	   
+if (config.ANTI_LINK == "true"){
+if (isAnti && isBotAdmins) {
+  if(!isAdmins){
+  if(!isMe){
+if (body.match(`https`)) {
+    await conn.sendMessage(from, { delete: mek.key })	  	  
+  reply('*「 ⚠️ 𝑳𝑰𝑵𝑲 𝑫𝑬𝑳𝑬𝑻𝑬𝑫 ⚠️ 」*')
+}
+}
+}
+}
+}
+//==================================================================
+const bad = await fetchJson(`https://raw.githubusercontent.com/chamiofficial/server-/main/badby_alpha.json`)
+if (config.ANTI_BAD == "true"){
+  if (!isAdmins && !isDev) {
+  for (any in bad){
+  if (body.toLowerCase().includes(bad[any])){  
+    if (!body.includes('tent')) {
+      if (!body.includes('docu')) {
+        if (!body.includes('https')) {
+  if (groupAdmins.includes(sender)) return 
+  if (mek.key.fromMe) return   
+  await conn.sendMessage(from, { delete: mek.key })  
+  await conn.sendMessage(from , { text: '*Bad word detected..!*'})
+  await conn.groupParticipantsUpdate(from,[sender], 'remove')
+  }}}}}}}
+   
+//==================================================================
+if(!isOwner) {	//!isOwner) {	
+    if(config.ANTI_DELETE === "true" ) {
+        
+    if (!m.id.startsWith("BAE5")) {
+    
+    // Ensure the base directory exists
+    const baseDir = 'message_data';
+    if (!fs.existsSync(baseDir)) {
+      fs.mkdirSync(baseDir);
+    }
+    
+    function loadChatData(remoteJid, messageId) {
+      const chatFilePath = path.join(baseDir, remoteJid, `${messageId}.json`);
+      try {
+        const data = fs.readFileSync(chatFilePath, 'utf8');
+        return JSON.parse(data) || [];
+      } catch (error) {
+        return [];
+      }
+    }
+    
+    function saveChatData(remoteJid, messageId, chatData) {
+      const chatDir = path.join(baseDir, remoteJid);
+    
+      if (!fs.existsSync(chatDir)) {
+        fs.mkdirSync(chatDir, { recursive: true });
+      }
+    
+      const chatFilePath = path.join(chatDir, `${messageId}.json`);
+    
+      try {
+        fs.writeFileSync(chatFilePath, JSON.stringify(chatData, null, 2));
+       // console.log('Chat data saved successfully.');
+      } catch (error) {
+        console.error('Error saving chat data:', error);
+      }
+    }
+        
+    function handleIncomingMessage(message) {
+      const remoteJid = from //message.key.remoteJid;
+      const messageId = message.key.id;
+    
+      const chatData = loadChatData(remoteJid, messageId);
+    
+      chatData.push(message);
+    
+      saveChatData(remoteJid, messageId, chatData);
+    
+    //  console.log('Message received and saved:', messageId);
+    }
+    
+    const delfrom = config.DELETEMSGSENDTO !=='' ? config.DELETEMSGSENDTO + 'chat.whatsapp.com': from
+    function handleMessageRevocation(revocationMessage) {
+    //const remoteJid = revocationMessage.message.protocolMessage.key.remoteJid;
+     //const messageId = revocationMessage.message.protocolMessage.key.id;
+    const remoteJid = from // revocationMessage.msg.key.remoteJid;
+    const messageId = revocationMessage.msg.key.id;
+    
+        
+     // console.log('Received revocation message with ID:', messageId);
+    
+      const chatData = loadChatData(remoteJid, messageId);
+    
+       const originalMessage = chatData[0]   
+    
+      if (originalMessage) {
+        const deletedBy = revocationMessage.sender.split('@')[0];
+        const sentBynn = originalMessage.key.participant ?? revocationMessage.sender;
+    const sentBy = sentBynn.split('@')[0];
+          if ( deletedBy.includes(botNumber) || sentBy.includes(botNumber) ) return;
+     if(originalMessage.message && originalMessage.message.conversation && originalMessage.message.conversation !== ''){
+         const messageText = originalMessage.message.conversation;
+    if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+         var xx = '```'
+     conn.sendMessage(delfrom, { text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${messageText}${xx}` });
+    //........................................//........................................
+    }else if(originalMessage.msg.type ==='MESSAGE_EDIT'){
+     conn.sendMessage(delfrom, { text: `❌ *edited message detected* ${originalMessage.message.editedMessage.message.protocolMessage.editedMessage.conversation}` },{quoted: mek});
+     
+    //........................................//........................................
+    } else if(originalMessage.message && originalMessage.message.exetendedTextMessage && originalMessage.msg.text ){ //&& originalMessage.message.exetendedTextMessage.text && originalMessage.message.exetendedTextMessage.text !== ''){
+        const messageText = originalMessage.msg.text;
+    if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+    
+     var xx = '```'
+     conn.sendMessage(delfrom, { text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${messageText}${xx}` });
+    } else if(originalMessage.message && originalMessage.message.exetendedTextMessage ){ //&& originalMessage.message.exetendedTextMessage.text && originalMessage.message.exetendedTextMessage.text !== ''){
+        const messagetext = originalMessage.message.extendedTextMessage.text;
+    if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+     var xx = '```'
+     conn.sendMessage(delfrom, { text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${originalMessage.body}${xx}` });
+    }else if(originalMessage.type === 'extendedTextMessage') {
+    async function quotedMessageRetrive(){     
+    var nameJpg = getRandom('');
+    const ml = sms(conn, originalMessage)
+                
+    if(originalMessage.message.extendedTextMessage){
+    const messagetext = originalMessage.message.extendedTextMessage.text;
+    if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+        var xx = '```'
+     conn.sendMessage(delfrom, { text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${originalMessage.message.extendedTextMessage.text}${xx}` });
+    }else{
+    const messagetext = originalMessage.message.extendedTextMessage.text;
+    if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+        conn.sendMessage(delfrom, { text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${originalMessage.message.extendedTextMessage.text}${xx}` });
+    }
+    }
+    
+    quotedMessageRetrive()
+           
+    }else if(originalMessage.type === 'imageMessage') {
+          async function imageMessageRetrive(){      var nameJpg = getRandom('');
+    const ml = sms(conn, originalMessage)
+                let buff =  await ml.download(nameJpg)
+                let fileType = require('file-type');
+                let type = fileType.fromBuffer(buff);
+                await fs.promises.writeFile("./" + type.ext, buff);
+    if(originalMessage.message.imageMessage.caption){
+    const messageText = originalMessage.message.imageMessage.caption;
+    if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+    
+        await conn.sendMessage(delfrom, { image: fs.readFileSync("./" + type.ext), caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${originalMessage.message.imageMessage.caption}` })
+    }else{
+        await conn.sendMessage(delfrom, { image: fs.readFileSync("./" + type.ext), caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_` })
+    }       
+        }
+    imageMessageRetrive()
+     
+    }else if(originalMessage.type === 'videoMessage') {
+          async function videoMessageRetrive(){      var nameJpg = getRandom('');
+    const ml = sms(conn, originalMessage)
+    
+    const vData = originalMessage.message.videoMessage.fileLength
+    const vTime = originalMessage.message.videoMessage.seconds;
+    const fileDataMB = config.MAX_SIZE
+    const fileLengthBytes = vData
+    const fileLengthMB = fileLengthBytes / (1024 * 1024);
+    const fileseconds = vTime
+    if(originalMessage.message.videoMessage.caption){
+    if (fileLengthMB < fileDataMB && fileseconds < 30*60 ) {
+                let buff =  await ml.download(nameJpg)
+                let fileType = require('file-type');
+                let type = fileType.fromBuffer(buff);
+                await fs.promises.writeFile("./" + type.ext, buff);
+    const messageText = originalMessage.message.videoMessage.caption;
+    if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+    
+        await conn.sendMessage(delfrom, { video: fs.readFileSync("./" + type.ext), caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${originalMessage.message.videoMessage.caption}` })
+           }
+    }else{
+                let buff =  await ml.download(nameJpg)
+                let fileType = require('file-type');
+                let type = fileType.fromBuffer(buff);
+                await fs.promises.writeFile("./" + type.ext, buff);
+        const vData = originalMessage.message.videoMessage.fileLength
+    const vTime = originalMessage.message.videoMessage.seconds;
+    const fileDataMB = config.MAX_SIZE
+    const fileLengthBytes = vData
+    const fileLengthMB = fileLengthBytes / (1024 * 1024);
+    const fileseconds = vTime
+    if (fileLengthMB < fileDataMB && fileseconds < 30*60 ) {
+        await conn.sendMessage(delfrom, { video: fs.readFileSync("./" + type.ext), caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_` })
+    }
+    }       
+    }
+    videoMessageRetrive()
+    }else if(originalMessage.type === 'documentMessage') {
+          async function documentMessageRetrive(){      var nameJpg = getRandom('');
+    const ml = sms(conn, originalMessage)
+                let buff =  await ml.download(nameJpg)
+                let fileType = require('file-type');
+                let type = fileType.fromBuffer(buff);
+                await fs.promises.writeFile("./" + type.ext, buff);
+    
+        
+    
+    if(originalMessage.message.documentWithCaptionMessage){
+    
+    await conn.sendMessage(delfrom, { document: fs.readFileSync("./" + type.ext), mimetype: originalMessage.message.documentMessage.mimetype, fileName: originalMessage.message.documentMessage.fileName, caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n`});
+     
+    }else{
+    
+    await conn.sendMessage(delfrom, { document: fs.readFileSync("./" + type.ext), mimetype: originalMessage.message.documentMessage.mimetype, fileName: originalMessage.message.documentMessage.fileName, caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n`});
+    
+    }
+     }
+    
+    documentMessageRetrive()
+    }else if(originalMessage.type === 'audioMessage') {
+          async function audioMessageRetrive(){      var nameJpg = getRandom('');
+    const ml = sms(conn, originalMessage)
+                let buff =  await ml.download(nameJpg)
+                let fileType = require('file-type');
+                let type = fileType.fromBuffer(buff);
+                await fs.promises.writeFile("./" + type.ext, buff);
+    if(originalMessage.message.audioMessage){
+    const audioq = await conn.sendMessage(delfrom, { audio: fs.readFileSync("./" + type.ext), mimetype:  originalMessage.message.audioMessage.mimetype, fileName:  `${m.id}.mp3` })	
+    return await conn.sendMessage(delfrom, { text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` },{quoted: audioq});
+    
+    }else{
+    if(originalMessage.message.audioMessage.ptt === "true"){
+    
+    const pttt = await conn.sendMessage(delfrom, { audio: fs.readFileSync("./" + type.ext), mimetype:  originalMessage.message.audioMessage.mimetype, ptt: 'true',fileName: `${m.id}.mp3` })	
+    return await conn.sendMessage(delfrom, { text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` },{quoted: pttt});
+    
+     }
+      }
+     }
+    
+    audioMessageRetrive()
+    }else if(originalMessage.type === 'stickerMessage') {
+          async function stickerMessageRetrive(){      var nameJpg = getRandom('');
+    const ml = sms(conn, originalMessage)
+                let buff =  await ml.download(nameJpg)
+                let fileType = require('file-type');
+                let type = fileType.fromBuffer(buff);
+                await fs.promises.writeFile("./" + type.ext, buff);
+    if(originalMessage.message.stickerMessage){
+     
+    //await conn.sendMessage(from, { audio: fs.readFileSync("./" + type.ext), mimetype:  originalMessage.message.audioMessage.mimetype, fileName:  `${m.id}.mp3` })	
+     const sdata = await conn.sendMessage(delfrom,{sticker: fs.readFileSync("./" + type.ext) ,package: 'SOLO-LEVELING-MD 🌟'})
+    return await conn.sendMessage(delfrom, { text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` },{quoted: sdata});
+    
+    }else{
+    
+    const stdata = await conn.sendMessage(delfrom,{sticker: fs.readFileSync("./" + type.ext) ,package: 'SOLO-LEVELING-MD 🌟'})
+    return await conn.sendMessage(delfrom, { text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` },{quoted: stdata});
+    
+      }
+     }
+    
+    stickerMessageRetrive()
+             }
+         
+      } else {
+        console.log('Original message not found for revocation.');
+      }
+    }
+//    if(!isGroup){
+    if (mek.msg && mek.msg.type === 0) {
+      handleMessageRevocation(mek);
+    } else {//if(mek.message && mek.message.conversation && mek.message.conversation !== ''){
+      handleIncomingMessage(mek);
+    
+   //     }
+    }
+    }
+    }	
+    }
+
+
+//==================================================================
+	      
+            switch (command) {
+        case 'jid':
+        reply(from)
+        break
+        
+        default:				
+        if (isOwner && body.startsWith('$')) {
+        let bodyy = body.split('$')[1]
+        let code2 = bodyy.replace("°", ".toString()");
+        try {
+        let resultTest = await eval(code2);
+        if (typeof resultTest === "object") {
+        reply(util.format(resultTest));
+        } else {
+        reply(util.format(resultTest));
+        }
+        } catch (err) {
+        reply(util.format(err));
+        }}}
+        } catch (e) {
+            const isError = String(e)
+            console.log(isError)
+        }
+    })
+}
+
+app.get("/", (req, res) => {
+res.send("📟 solo-leveling Working successfully!");
+});
+app.listen(port, () => console.log(`solo-leveling Server listening on port http://localhost:${port}`));
+
+setTimeout(() => {
+connectToWA()
+}, 3000);
