@@ -8,7 +8,7 @@
     "stack": "container",
   "env": {
     "SESSION_ID": {
-      "description": "Put the session-id here.",
+      "description": "Put the session-id here/නම්බර් එකට ආපු දිග කේතය දමන්න.",
       "required": true,
       "value": ""
     }
