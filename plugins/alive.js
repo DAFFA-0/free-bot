@@ -33,7 +33,20 @@ async (conn, mek, m, { from, sender, reply }) => {
 > support : https://whatsapp.com/channel/0029VbB1RlO3rZZUwO0jB02Y 
 
 > ${config.DESCRIPTION}`;
+// share local audio 
 
+const audioPath = path.join(__dirname, '../assets/men.m4a');
+await conn.sendMessage(from, {
+    audio: fs.readFileSync(audioPath),
+    mimetype: 'audio/mp4',
+    ptt: true,
+}, { quoted: mek });
+        
+    } catch (e) {
+        console.log(e);
+        reply(`❌ Error: ${e}`);
+    }
+});
         await conn.sendMessage(from, {
             image: { url: config.MENU_IMAGE_URL },
             caption: status,
